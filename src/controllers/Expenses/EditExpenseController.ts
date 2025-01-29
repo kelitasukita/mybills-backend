@@ -36,7 +36,7 @@ class EditExpenseController {
       currentInstallment,
       installments,
       paid,
-      recurrent
+      recurrent: !recurrent ? null : recurrent
     };
     try {
       const executionResponse = await service.execute(id, dadosParaEdicao);

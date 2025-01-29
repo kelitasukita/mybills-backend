@@ -1,10 +1,11 @@
-import { EntityRepository, Repository, Between, Not, LessThan } from "typeorm";
+import { Between, EntityRepository, Not, Repository } from "typeorm";
 
 import Expense from "../models/Expense";
+import RecurrentExpense from "../models/RecurrentExpense";
 
 interface ExpenseData {
-  description: string;
-  currency: string;
+  description: String;
+  currency: String;
   value: number;
   automaticDebit: boolean;
   dueDate: Date;
@@ -12,12 +13,14 @@ interface ExpenseData {
   currentInstallment: number;
   installments: number;
   paid: boolean;
-  recurrent: boolean;
+  recurrent?: RecurrentExpense;
+  parentId: string;
 }
 
 @EntityRepository(Expense)
 class ExpenseRepository extends Repository<Expense> {
   public async createExpense(data: ExpenseData): Promise<Expense> {
+
     const expense = this.create(data);
 
     return await this.save(expense);
@@ -85,12 +88,14 @@ class ExpenseRepository extends Repository<Expense> {
           paid: false,
           dueDate: Between(from, to),
         },
-        {
-          paid: false,
-          dueDate: LessThan(to < new Date() ? to : new Date()),
-        },
+        // AQUI ESTAMOS CONSULTANDO TODOS OS ATRASADOS DA DATA ATUAL QUE ESTAMOS JUNTO COM OS ATRASADOS DO MES:
+        // { 
+        //   paid: false,
+        //   dueDate: LessThan(to < new Date() ? to : new Date()),
+        // },
       ],
       order: {
+        dueDate: "ASC",
         description: "ASC",
         value: "DESC",
       },
@@ -142,6 +147,7 @@ class ExpenseRepository extends Repository<Expense> {
         dueDate: Between(from, to),
       },
       order: {
+        dueDate: "ASC",
         description: "ASC",
         value: "DESC",
       },
@@ -184,9 +190,11 @@ class ExpenseRepository extends Repository<Expense> {
     return expense;
   }
 
+  // @todo aplicar nova regra de recurrent
   public async generateMissingRecurrent(
     year: number,
-    month: number
+    month: number,
+    allValidRecurrents: RecurrentExpense[]
   ): Promise<Expense[] | undefined> {
     const today = new Date();
     const requestDate = new Date(year, month - 1, 24, 0, 0, 0); // Ano mês dia, Hora, minuto e segundo
@@ -197,77 +205,104 @@ class ExpenseRepository extends Repository<Expense> {
     // console.log(year, month, today, requestDate, 'from e to: ',  from, to);
 
     // @todo verificar como criar os registros de recurrent que faltam pros meses já visitados
-    const hasRecurrent = await this.findOne({
-      where: {
-        recurrent: true,
-        dueDate: Between(from, to),
-      },
+    allValidRecurrents.forEach(async recurrent => {
+      const hasRecurrent = await this.findOne({
+        where: {
+          recurrent: recurrent.id,
+          dueDate: Between(from, to),
+        },
+      });
+
+      // console.log(`${recurrent.id} - ${recurrent.description} - ${recurrent.dueDateDay} - ${recurrent.value}`);
+      // console.log(hasRecurrent, from, to);
+
+      if (!hasRecurrent) {
+        const newMonth = +recurrent.dueDateDay > 23 ? month - 1 : month; // calculo do novo mês
+        const newDueDate = new Date(year, newMonth, +recurrent.dueDateDay); // calculo da data de vencimento
+
+        const newRecurrentExpense = await this.createExpense({
+                    description: recurrent.description,
+                    value: +recurrent.value,
+                    automaticDebit: recurrent.automaticDebit,
+                    dueDate: newDueDate,
+                    currency: recurrent.currency,
+                    paid: false,
+                    recurrent: recurrent,
+                    obs: "",
+                    currentInstallment: 0,
+                    installments: 0,
+                    parentId: 'rec'
+                  });
+
+        // console.log(newRecurrentExpense);
+      }
     });
 
-    if (hasRecurrent) {
-      // Verifica se não tem recurrent, se tiver não gera nada
-      // PRECISO VERIFICAR SE TEM RECURRENT, SE TIVER VERIFICO SE TODAS AS ATUAIS SÃO IGUAIS ÀS DOS
-      // MESES ANTERIORES, SE NÃO FOREM ADD AS NOVAS RECURRENTS.
-      return;
-    }
+    // if (hasRecurrent) {
+    //   // Verifica se não tem recurrent, se tiver não gera nada
+    //   // PRECISO VERIFICAR SE TEM RECURRENT, SE TIVER VERIFICO SE TODAS AS ATUAIS SÃO IGUAIS ÀS DOS
+    //   // MESES ANTERIORES, SE NÃO FOREM ADD AS NOVAS RECURRENTS.
+    //   return;
+    // }
 
-    // Busca os recurrents menores que o from
-    const recurrents = await this.createQueryBuilder("expenses")
-      .distinct()
-      .select("description")
-      .addSelect("value")
-      .addSelect("currency")
-      .addSelect('MAX("dueDate")', "duedate")
-      .where("recurrent = :value", { value: true })
-      .andWhere('"dueDate" < :from', { from })
-      .groupBy("description")
-      .addGroupBy("value")
-      .addGroupBy("currency")
-      .orderBy("duedate", "DESC")
-      .getRawMany();
+    // // Busca os recurrents menores que o from
+    // const recurrents = await this.createQueryBuilder("expenses")
+    //   .distinct()
+    //   .select("description")
+    //   .addSelect("value")
+    //   .addSelect("currency")
+    //   .addSelect('MAX("dueDate")', "duedate")
+    //   .where("recurrent = :value", { value: true })
+    //   .andWhere('"dueDate" < :from', { from })
+    //   .groupBy("description")
+    //   .addGroupBy("value")
+    //   .addGroupBy("currency")
+    //   .orderBy("duedate", "DESC")
+    //   .getRawMany();
 
-    console.log(recurrents);
+    // console.log(recurrents);
 
-    const recurrentCreated: any[] = [];
+    // const recurrentCreated: any[] = [];
 
-    await Promise.all(
-      recurrents.map(async (bill) => {
-        if (recurrentCreated.indexOf(bill.description) == -1) {
-          // se não foi gerado, gerar
+    // await Promise.all(
+    //   recurrents.map(async (bill) => {
+    //     if (recurrentCreated.indexOf(bill.description) == -1) {
+    //       // se não foi gerado, gerar
 
-          recurrentCreated.push(bill.description); // Alimentando array com a description pra ser gerada
+    //       recurrentCreated.push(bill.description); // Alimentando array com a description pra ser gerada
 
-          const newMonth = bill.duedate.getDate() > 23 ? month - 1 : month; // calculo do novo mês
-          const newDueDate = new Date(year, newMonth, bill.duedate.getDate()); // calculo da data de vencimento
+    //       const newMonth = bill.duedate.getDate() > 23 ? month - 1 : month; // calculo do novo mês
+    //       const newDueDate = new Date(year, newMonth, bill.duedate.getDate()); // calculo da data de vencimento
 
-          // verificar se já existe no banco
-          const exists = await this.findOne({
-            where: {
-              description: bill.description,
-              recurrent: true,
-              dueDate: Between(from, to),
-            },
-          });
+    //       // verificar se já existe no banco
+    //       const exists = await this.findOne({
+    //         where: {
+    //           description: bill.description,
+    //           recurrent: true,
+    //           dueDate: Between(from, to),
+    //         },
+    //       });
 
-          if (!exists) {
-            // se não existir
-            // Posso criar
-            await this.createExpense({
-              description: bill.description,
-              value: +bill.value,
-              currency: bill.currency,
-              automaticDebit: true,
-              dueDate: newDueDate,
-              paid: false,
-              recurrent: true,
-              obs: "",
-              currentInstallment: 0,
-              installments: 0,
-            });
-          }
-        }
-      })
-    );
+    //       if (!exists) {
+    //         // se não existir
+    //         // Posso criar
+    //         await this.createExpense({
+    //           description: bill.description,
+    //           value: +bill.value,
+    //           currency: bill.currency,
+    //           automaticDebit: true,
+    //           dueDate: newDueDate,
+    //           paid: false,
+    //           recurrent: true,
+    //           obs: "",
+    //           currentInstallment: 0,
+    //           installments: 0,
+    //           parentId: 'rec'
+    //         });
+    //       }
+    //     }
+    //   })
+    // );
   }
 }
 

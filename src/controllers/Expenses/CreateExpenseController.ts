@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { getCustomRepository } from "typeorm";
 import ExpenseRepository from "../../repositories/ExpensesRepository";
+import RecurrentExpenseRepository from "../../repositories/RecurrentExpenseRepository";
 import CreateExpenseService from "../../services/CreateExpenseService";
 
 class CreateExpenseController {
@@ -10,7 +11,8 @@ class CreateExpenseController {
     try {
 
       const repository = getCustomRepository(ExpenseRepository);
-      const service = new CreateExpenseService(repository);
+      const recurrentRepo = getCustomRepository(RecurrentExpenseRepository);
+      const service = new CreateExpenseService(repository, recurrentRepo);
 
       return response.json(await service.execute(request.body));
 

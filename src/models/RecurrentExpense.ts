@@ -1,13 +1,10 @@
 import {
-  Entity,
   Column,
-  PrimaryGeneratedColumn,
   CreateDateColumn,
   DeleteDateColumn,
-  ManyToOne,
-  JoinColumn,
+  Entity,
+  PrimaryGeneratedColumn,
 } from "typeorm";
-import ExpenseType from "./ExpenseType";
 
 @Entity("recurrent_expenses")
 class RecurrentExpense {
@@ -17,30 +14,26 @@ class RecurrentExpense {
   @Column("varchar")
   userId: String = "117908811566542498391";
 
-  @ManyToOne(() => ExpenseType)
-  @JoinColumn({ name: "expense_type_id" })
-  expenseType: ExpenseType;
-
   @Column("varchar")
   description: String;
+
+  @Column('boolean')
+  automaticDebit: boolean;
+
+  @Column("integer")
+  dueDateDay: Number;
+
+  @Column('varchar')
+  currency: String;
 
   @Column("decimal", { precision: 10, scale: 2 })
   value: Number;
 
-  @Column("boolean")
-  automaticDebit: boolean;
+  @Column("date")
+  start_at: Date;
 
   @Column("date")
-  dueDateMonth: Number;
-
-  @Column("date")
-  dueDateDay: Number;
-
-  @Column("varchar")
-  obs: String;
-
-  @Column("varchar")
-  currency: String;
+  end_at: Date;
 
   @CreateDateColumn()
   created_at: Date;
@@ -48,9 +41,6 @@ class RecurrentExpense {
   @DeleteDateColumn()
   deleted_at: Date;
 
-  overdue: boolean = false;
-
-  exchangedValue: number = 0;
 }
 
 export default RecurrentExpense;

@@ -2,7 +2,9 @@ import { addMonths } from 'date-fns';
 import * as Yup from 'yup';
 
 import Expense from '../models/Expense';
+import RecurrentExpense from '../models/RecurrentExpense';
 import ExpensesRepository from '../repositories/ExpensesRepository';
+import RecurrentExpenseRepository, { RecurrentExpenseData } from '../repositories/RecurrentExpenseRepository';
 
 interface Request {
   description: string;
@@ -11,17 +13,19 @@ interface Request {
   automaticDebit: boolean;
   dueDate: Date;
   obs: string;
-  currentInstallment: bigint;
-  installments: bigint;
+  currentInstallment: number;
+  installments: number;
   paid: boolean;
   recurrent: boolean;
 }
 
 class CreateExpenseService {
   private expensesRepository: ExpensesRepository;
+  private recurrentExpensesRepository: RecurrentExpenseRepository;
 
-  constructor(repository: ExpensesRepository) {
+  constructor(repository: ExpensesRepository, recurrentRepository: RecurrentExpenseRepository) {
     this.expensesRepository = repository;
+    this.recurrentExpensesRepository = recurrentRepository;
   }
 
   public async execute({
@@ -49,21 +53,37 @@ class CreateExpenseService {
       recurrent: Yup.boolean().required(),
     });
 
-    if (
-      !(await schema.isValid({
+    schema.validate({
+      description,
+      currency,
+      value,
+      automaticDebit,
+      dueDate,
+      obs,
+      currentInstallment,
+      installments,
+      paid,
+      recurrent,
+    }, { abortEarly: false })
+      .then(() => {
+        console.log('Validação bem-sucedida');
+      })
+      .catch((err) => {
+        console.log(err.errors); // Lista todos os erros de validação
+        throw Error('Validation Failed');
+      });
+
+    let recurrentExpense: RecurrentExpense | undefined;
+
+    if(recurrent) {
+      recurrentExpense = await this.createRecurrent({
         description,
         currency,
         value,
         automaticDebit,
-        dueDate,
-        obs,
-        currentInstallment,
-        installments,
-        paid,
-        recurrent,
-      }))
-    ) {
-      throw Error('Validation Failed');
+        dueDateDay: new Date(dueDate).getDate(),
+        start_at: new Date(dueDate),
+      });
     }
 
     if (await this.expensesRepository.isDuplicated(description, value, dueDate)) {
@@ -74,8 +94,11 @@ class CreateExpenseService {
 
     if (installments > 1) {
       let monthsToAdd = 0;
+
+      let parentId = null;
+
       for (let i = currentInstallment; i <= installments; ++i) {
-        const currentExpense = await this.expensesRepository.createExpense({
+        const expenseData = {
           description,
           currency,
           value,
@@ -85,8 +108,18 @@ class CreateExpenseService {
           currentInstallment: i,
           installments,
           paid,
-          recurrent,
-        });
+          recurrent: null,
+          parentId: parentId ?? 'no'
+        };
+
+        const currentExpense = await this.expensesRepository.createExpense(expenseData);
+
+        if (!parentId) {
+          parentId = currentExpense.id;
+          currentExpense.parentId = currentExpense.id;
+
+          await this.expensesRepository.save(currentExpense);
+        }
 
         paid = false;
 
@@ -103,13 +136,21 @@ class CreateExpenseService {
         currentInstallment,
         installments,
         paid,
-        recurrent,
+        recurrent: recurrentExpense,
+        parentId: 'noi'
       });
 
       expenses.push(expense);
     }
 
     return expenses;
+  }
+
+  private async createRecurrent(recurrentData: RecurrentExpenseData): Promise<RecurrentExpense>
+  {
+    const recurrentExpense = await this.recurrentExpensesRepository.createRecurrentExpense(recurrentData);
+
+    return recurrentExpense;
   }
 }
 

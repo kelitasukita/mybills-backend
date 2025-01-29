@@ -1,9 +1,13 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity('earnings')
 class Earning {
   @PrimaryGeneratedColumn('uuid')
   id: String;
+
+  @ManyToOne(() => Earning)
+  @JoinColumn({name: 'parent_id'})
+  parentId: String
 
   @Column('varchar')
   userId: String = "117908811566542498391";

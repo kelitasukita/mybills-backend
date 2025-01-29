@@ -1,7 +1,9 @@
-import *as Yup from 'yup';
 import { addMonths } from 'date-fns';
+import * as Yup from 'yup';
 
+import { MoreThanOrEqual, getRepository } from 'typeorm';
 import Expense from "../models/Expense";
+import RecurrentExpense from '../models/RecurrentExpense';
 import ExpensesRepository from '../repositories/ExpensesRepository';
 
 interface Request {
@@ -34,7 +36,6 @@ class UpdateExpenseService {
     currentInstallment,
     installments,
     paid,
-    recurrent,
   }: Request): Promise<Expense[] | null> {
 
     // Validação dos campos
@@ -48,15 +49,39 @@ class UpdateExpenseService {
       currentInstallment: Yup.number(),
       installments: Yup.number(),
       paid: Yup.boolean(),
-      recurrent: Yup.boolean().required()
     });
 
-    if (!(await schema.isValid({ description, currency, value, automaticDebit, dueDate, obs, currentInstallment, installments, paid, recurrent }))) {
+    if (!(await schema.isValid({ description, currency, value, automaticDebit, dueDate, obs, currentInstallment, installments, paid }))) {
       throw Error('Validation Failed')
     }
 
     // Validar se o registro existe no banco findOneOrFail no repository
-    const expenseToBeUpdated = await this.repository.findOneOrFail(id);
+    const expenseToBeUpdated = await this.repository.findOneOrFail(id, {
+      relations: [`recurrent`]
+    });
+
+    if (expenseToBeUpdated.recurrent) {
+      console.log('É uma recurrent');
+      const recurrentExpenseRepository = getRepository(RecurrentExpense);
+
+      // Atualiza Recurrent
+      await recurrentExpenseRepository.update({
+        id: expenseToBeUpdated.recurrent.id
+      }, {
+        description,
+        value,
+        automaticDebit,
+        dueDateDay: new Date(dueDate).getDate(),
+        currency,
+      });
+
+      // Deleta registros futuros não pagos de recurrent
+      await this.repository.delete({
+        recurrent: expenseToBeUpdated.recurrent,
+        paid: false,  
+        dueDate: MoreThanOrEqual(expenseToBeUpdated.dueDate),
+      });
+    }
 
     // Checar duplicados mas não checar no registro em edição
     if (await this.repository.isDuplicatedButNotMe(id, description, value, dueDate)) {
@@ -85,8 +110,7 @@ class UpdateExpenseService {
           obs,
           currentInstallment: i,
           installments,
-          paid,
-          recurrent
+          paid
         });
 
         paid = false;
@@ -103,8 +127,7 @@ class UpdateExpenseService {
         obs,
         currentInstallment,
         installments,
-        paid,
-        recurrent
+        paid
       });
 
       const updatedExpense = await this.repository.findOne(id);

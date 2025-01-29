@@ -1,10 +1,14 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 import ExpenseType from './ExpenseType';
+import RecurrentExpense from './RecurrentExpense';
 
 @Entity('expenses')
 class Expense {
   @PrimaryGeneratedColumn('uuid')
   id: String;
+
+  @Column('varchar', {name: 'parent_id', nullable: true})
+  parentId: String
 
   @Column('varchar')
   userId: String = "117908811566542498391";
@@ -37,8 +41,9 @@ class Expense {
   @Column('boolean')
   paid: boolean;
 
-  @Column('boolean')
-  recurrent: boolean;
+  @ManyToOne(() => RecurrentExpense, {nullable: true})
+  @JoinColumn({ name: 'recurrent_expenses_id'})
+  recurrent?: RecurrentExpense;
 
   @Column('boolean')
   currency: String;
